@@ -117,6 +117,14 @@ O Bob roda num container ao lado da Evolution. Gemini e Supabase continuam na nu
 
 Quando tiver uma VPS, é só subir o mesmo `docker-compose.yml` nela.
 
+## Bob só num grupo do WhatsApp
+
+1. Adicione o número do Bob ao grupo.
+2. Descubra o ID do grupo: `GET /group/fetchAllGroups/SUA_INSTANCIA?getParticipants=false` na Evolution (header `apikey`). O ID termina em `@g.us`.
+3. Na Vercel, defina `ALLOWED_GROUPS` com esse ID (vários separados por vírgula) e faça o redeploy.
+
+Com `ALLOWED_GROUPS` preenchido o Bob responde **só** nesses grupos, ignora o privado, e qualquer membro do grupo pode usar. `GROUP_LEDGER=grupo` (padrão) junta os lançamentos de todos numa conta só (bom para casal/família); `GROUP_LEDGER=pessoa` separa por membro. Num grupo dedicado ao Bob ele responde toda mensagem, então evite colocá-lo em grupos de conversa geral.
+
 ## Variáveis de ambiente
 
 | Variável | Para quê |
@@ -125,7 +133,8 @@ Quando tiver uma VPS, é só subir o mesmo `docker-compose.yml` nela.
 | `WEBHOOK_TOKEN` | segredo na URL do webhook (bloqueia chamadas de terceiros) |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | IA |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | banco |
-| `ALLOWED_NUMBERS` | opcional: só esses números podem usar (protege sua cota gratuita) |
+| `ALLOWED_NUMBERS` | opcional: só esses números podem usar no privado (protege sua cota gratuita) |
+| `ALLOWED_GROUPS`, `GROUP_LEDGER` | opcional: modo grupo (veja acima) |
 | `TIMEZONE` | padrão `America/Sao_Paulo` |
 
 ## Limites do free tier (bom saber)

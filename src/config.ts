@@ -31,6 +31,14 @@ export const config = {
       .map((n) => n.replace(/\D/g, ''))
       .filter(Boolean);
   },
+  /** JIDs dos grupos atendidos. Se preenchido, o Bob responde SÓ nesses grupos. */
+  get allowedGroups(): string[] {
+    return (process.env.ALLOWED_GROUPS || '').split(',').map((g) => g.trim()).filter(Boolean);
+  },
+  /** "grupo" = uma conta só para o grupo todo; "pessoa" = cada membro tem a sua. */
+  get groupLedger(): 'grupo' | 'pessoa' {
+    return process.env.GROUP_LEDGER === 'pessoa' ? 'pessoa' : 'grupo';
+  },
   get timezone() {
     return process.env.TIMEZONE || 'America/Sao_Paulo';
   },

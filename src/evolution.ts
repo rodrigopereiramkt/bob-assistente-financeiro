@@ -8,14 +8,27 @@ export interface EvolutionConfig {
 
 /** Mensagem crua que a Evolution API v2 manda no evento messages.upsert. */
 interface RawMessage {
-  key?: { remoteJid?: string; remoteJidAlt?: string; senderPn?: string; fromMe?: boolean; id?: string };
+  key?: {
+    remoteJid?: string;
+    remoteJidAlt?: string;
+    senderPn?: string;
+    participant?: string;
+    participantAlt?: string;
+    fromMe?: boolean;
+    id?: string;
+  };
   pushName?: string;
   message?: Record<string, any> & { base64?: string };
   messageType?: string;
 }
 
 export interface ParsedWebhook {
+  /** `from` é sempre a pessoa que escreveu (no grupo, o participante). */
   message: Omit<IncomingMessage, 'media'>;
+  /** Conversa onde a resposta deve ser enviada (privado ou grupo). */
+  chatId: string;
+  /** JID do grupo (…@g.us) quando a mensagem veio de um grupo. */
+  groupId: string | null;
   /** Mídia a baixar (áudio/imagem). O base64 vem no payload se "Webhook Base64" estiver ligado. */
   mediaKind: 'audio' | 'image' | null;
   mimeType: string | null;
@@ -48,7 +61,8 @@ export function isAllowed(from: string, allowed: string[]): boolean {
 
 /**
  * Extrai a mensagem do payload do webhook.
- * Retorna null para eventos que o Bob ignora (grupos, status, mensagens enviadas por ele mesmo etc.).
+ * Retorna null para eventos que o Bob ignora (status, canais, mensagens enviadas por ele mesmo etc.).
+ * Se o Bob deve atender o grupo ou não é decidido depois, pela config.
  */
 export function parseWebhook(body: any): ParsedWebhook | null {
   const event = String(body?.event ?? '').toLowerCase().replace('_', '.');
@@ -57,11 +71,14 @@ export function parseWebhook(body: any): ParsedWebhook | null {
   const data: RawMessage = Array.isArray(body.data) ? body.data[0] : body.data;
   const key = data?.key;
   if (!key?.id || !key.remoteJid || key.fromMe) return null;
-  if (key.remoteJid.endsWith('@g.us') || key.remoteJid.endsWith('@broadcast') || key.remoteJid.endsWith('@newsletter')) return null;
+  if (key.remoteJid.endsWith('@broadcast') || key.remoteJid.endsWith('@newsletter')) return null;
 
-  // Contas novas do WhatsApp podem chegar como @lid; o número real vem em remoteJidAlt/senderPn.
-  let from = key.remoteJid;
-  if (from.endsWith('@lid')) from = key.remoteJidAlt || key.senderPn || from;
+  const groupId = key.remoteJid.endsWith('@g.us') ? key.remoteJid : null;
+  // Contas novas do WhatsApp podem chegar como @lid; o número real vem nos campos *Alt/senderPn.
+  let from = groupId ? key.participant ?? '' : key.remoteJid;
+  if (groupId && (!from || from.endsWith('@lid'))) from = key.participantAlt || from;
+  if (!groupId && from.endsWith('@lid')) from = key.remoteJidAlt || key.senderPn || from;
+  if (!from) return null;
 
   const m = data.message ?? {};
   const inner = m.ephemeralMessage?.message ?? m.viewOnceMessage?.message ?? m;
@@ -86,11 +103,19 @@ export function parseWebhook(body: any): ParsedWebhook | null {
 
   return {
     message: { messageId: key.id, from, name: data.pushName ?? null, text },
+    chatId: key.remoteJid,
+    groupId,
     mediaKind,
     mimeType,
     inlineBase64: m.base64 ?? null,
     raw: data,
   };
+}
+
+/** Compara JIDs de grupo aceitando com ou sem o sufixo @g.us. */
+export function isAllowedGroup(groupId: string, allowed: string[]): boolean {
+  const id = groupId.split('@')[0];
+  return allowed.some((g) => g.split('@')[0] === id);
 }
 
 export class EvolutionClient {
@@ -108,7 +133,7 @@ export class EvolutionClient {
   }
 
   async sendText(to: string, text: string): Promise<void> {
-    const number = to.endsWith('@s.whatsapp.net') ? phoneOf(to) : to;
+    const number = to.endsWith('@s.whatsapp.net') ? phoneOf(to) : to; // grupos vão com o JID completo
     await this.call('/message/sendText', { number, text });
   }
 

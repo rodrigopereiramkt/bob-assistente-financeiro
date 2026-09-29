@@ -2,7 +2,7 @@ import { waitUntil } from '@vercel/functions';
 import { timingSafeEqual } from 'node:crypto';
 import { handleMessage } from '../src/bob.js';
 import { config } from '../src/config.js';
-import { EvolutionClient, isAllowed, parseWebhook } from '../src/evolution.js';
+import { EvolutionClient, isAllowed, isAllowedGroup, parseWebhook } from '../src/evolution.js';
 import { GeminiAI } from '../src/gemini.js';
 import { SupabaseStore } from '../src/store-supabase.js';
 import type { IncomingMessage } from '../src/types.js';
@@ -32,7 +32,17 @@ export async function POST(request: Request) {
     return Response.json({ ignored: true });
   }
 
-  if (!isAllowed(parsed.message.from, config.allowedNumbers)) {
+  const groups = config.allowedGroups;
+  if (parsed.groupId) {
+    // Em grupo, quem controla o acesso é a lista de grupos: qualquer membro de um grupo liberado pode usar.
+    if (!isAllowedGroup(parsed.groupId, groups)) {
+      console.log('Grupo fora de ALLOWED_GROUPS:', parsed.groupId);
+      return Response.json({ ignored: 'group-not-allowed' });
+    }
+  } else if (groups.length > 0) {
+    console.log('Modo grupo ativo, mensagem no privado ignorada:', parsed.message.from);
+    return Response.json({ ignored: 'private-in-group-mode' });
+  } else if (!isAllowed(parsed.message.from, config.allowedNumbers)) {
     console.log('Número fora de ALLOWED_NUMBERS:', parsed.message.from);
     return Response.json({ ignored: 'not-allowed' });
   }
@@ -44,7 +54,9 @@ export async function POST(request: Request) {
 
 async function processMessage(parsed: NonNullable<ReturnType<typeof parseWebhook>>) {
   const evolution = new EvolutionClient(config.evolution);
-  const to = parsed.message.from;
+  const to = parsed.chatId;
+  // No modo "grupo", todos os lançamentos do grupo caem na mesma conta.
+  const owner = parsed.groupId && config.groupLedger === 'grupo' ? parsed.groupId : parsed.message.from;
   try {
     await evolution.typing(to);
 
@@ -63,7 +75,7 @@ async function processMessage(parsed: NonNullable<ReturnType<typeof parseWebhook
     }
 
     const reply = await handleMessage(
-      { ...parsed.message, media },
+      { ...parsed.message, from: owner, media },
       {
         store: new SupabaseStore(config.supabase.url, config.supabase.serviceKey),
         ai: new GeminiAI(config.gemini.apiKey, config.gemini.model, config.gemini.fallbackModels),

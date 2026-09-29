@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { handleMessage } from '../src/bob.js';
-import { isAllowed, parseWebhook } from '../src/evolution.js';
+import { isAllowed, isAllowedGroup, parseWebhook } from '../src/evolution.js';
 import { BusyError, GeminiAI, QuotaError, toIntent } from '../src/gemini.js';
 import { MemoryStore } from '../src/store-memory.js';
 import type { AI, Intent } from '../src/types.js';
@@ -128,8 +128,14 @@ describe('parseWebhook (Evolution v2)', () => {
     expect(p?.message.from).toBe('5511888888888@s.whatsapp.net');
   });
 
-  it('ignora grupos, mensagens próprias e outros eventos', () => {
-    expect(parseWebhook({ ...base, data: { key: { remoteJid: '1@g.us', id: '1' }, message: { conversation: 'x' } } })).toBeNull();
+  it('lê mensagens de grupo com o participante como autor', () => {
+    const p = parseWebhook({ ...base, data: { key: { remoteJid: '120363@g.us', participant: '123@lid', participantAlt: '553899565367@s.whatsapp.net', id: 'g1' }, pushName: 'Mi', message: { conversation: 'gastei 10' } } });
+    expect(p).toMatchObject({ chatId: '120363@g.us', groupId: '120363@g.us', message: { from: '553899565367@s.whatsapp.net', text: 'gastei 10' } });
+    expect(isAllowedGroup('120363@g.us', ['120363'])).toBe(true);
+    expect(isAllowedGroup('120363@g.us', ['999@g.us'])).toBe(false);
+  });
+
+  it('ignora mensagens próprias e outros eventos', () => {
     expect(parseWebhook({ ...base, data: { key: { remoteJid: '55@s.whatsapp.net', fromMe: true, id: '1' }, message: { conversation: 'x' } } })).toBeNull();
     expect(parseWebhook({ event: 'connection.update', data: {} })).toBeNull();
   });

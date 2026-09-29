@@ -39,7 +39,7 @@ export type Intent =
 /** Uma mensagem recebida, já normalizada (independente da Evolution). */
 export interface IncomingMessage {
   messageId: string;
-  from: string; // número/JID usado para identificar o usuário e responder
+  from: string; // quem é o "dono" dos lançamentos (número/JID da pessoa ou do grupo)
   name: string | null;
   text: string | null;
   media: { mimeType: string; base64: string } | null;
