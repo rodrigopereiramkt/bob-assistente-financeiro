@@ -52,7 +52,7 @@ test/bob.test.ts        # testes
 
 ### 2. Gemini
 1. Gere uma chave em https://aistudio.google.com/apikey.
-2. Modelo padrão: `gemini-2.5-flash`. Se bater no limite diário, troque `GEMINI_MODEL` para `gemini-2.5-flash-lite` (cota gratuita maior). Confira os limites atuais em https://ai.google.dev/gemini-api/docs/rate-limits.
+2. Modelo padrão: `gemini-3.8-flash` (o `gemini-2.5-flash` foi aposentado para contas novas). Para usar outro, defina `GEMINI_MODEL`. Confira os limites atuais em https://ai.google.dev/gemini-api/docs/rate-limits.
 
 ### 3. Testar no terminal (opcional, sem WhatsApp)
 ```bash
