@@ -30,6 +30,8 @@ WhatsApp ──► Evolution API ──webhook──► Vercel /api/webhook ─�
 
 ```
 api/webhook.ts          # função da Vercel (POST do webhook da Evolution)
+scripts/server.ts       # mesmo webhook como servidor Node (Docker/local): npm run server
+docker-compose.yml      # Evolution + Postgres + Redis + Bob no seu computador
 src/bob.ts              # cérebro: decide o que fazer com cada mensagem
 src/gemini.ts           # prompt, schema JSON e validação da resposta do Gemini
 src/evolution.ts        # parse do webhook + envio de mensagens/mídia
@@ -84,6 +86,36 @@ curl -X POST "$EVOLUTION_API_URL/webhook/set/$EVOLUTION_INSTANCE" \
 ```
 
 Pronto: mande "ajuda" para o número da instância. 🎉
+
+## Sem VPS: Evolution API no seu computador (Docker)
+
+O `docker-compose.yml` sobe a Evolution API (com Postgres e Redis) no seu computador. O computador precisa ficar ligado, com o Docker rodando, para o Bob responder. Há dois jeitos de usar:
+
+### Opção A: Bob na Vercel + ngrok
+A Vercel precisa alcançar a sua Evolution para mandar as respostas, então a porta 8080 é exposta com o ngrok.
+
+1. Copie `.env.example` para `.env` e preencha pelo menos `EVOLUTION_API_KEY` (uma senha que você inventa; vira a chave global da sua Evolution) e `EVOLUTION_INSTANCE`.
+2. Suba a Evolution: `docker compose up -d`
+3. Crie uma conta grátis no [ngrok](https://ngrok.com), rode `ngrok config add-authtoken SEU_TOKEN` e pegue seu domínio fixo grátis em **Domains** no painel do ngrok.
+4. Exponha a Evolution: `ngrok http --url=SEU-DOMINIO.ngrok-free.app 8080`
+5. Na Vercel, use `EVOLUTION_API_URL=https://SEU-DOMINIO.ngrok-free.app` e a mesma `EVOLUTION_API_KEY` e `EVOLUTION_INSTANCE` do `.env`. Faça o redeploy.
+6. Abra http://localhost:8080/manager, entre com a `EVOLUTION_API_KEY`, crie a instância e leia o QR Code com o WhatsApp do número do Bob.
+7. Configure o webhook da instância apontando para a Vercel (passo 5 do deploy lá em cima): `https://SEU-APP.vercel.app/api/webhook?token=SEU_WEBHOOK_TOKEN`, só `MESSAGES_UPSERT`, Base64 ligado.
+
+Use o domínio fixo do ngrok: sem ele a URL muda toda vez que o ngrok reinicia e você teria que atualizar a Vercel.
+
+### Opção B: tudo local, sem Vercel e sem túnel
+O Bob roda num container ao lado da Evolution. Gemini e Supabase continuam na nuvem.
+
+1. Preencha o `.env` completo (pode deixar `EVOLUTION_API_URL` como está, o compose já aponta para a Evolution).
+2. `docker compose --profile local up -d --build`
+3. No Manager (http://localhost:8080/manager), crie a instância e leia o QR Code.
+4. Webhook da instância: `http://bob:3000/api/webhook?token=SEU_WEBHOOK_TOKEN` (`bob` é o nome do serviço no Docker), só `MESSAGES_UPSERT`, Base64 ligado.
+
+### Comandos úteis
+`docker compose logs -f evolution` (ou `bob`) para ver o que está acontecendo, `docker compose restart` depois de mudar o `.env`, `docker compose down` para desligar sem perder a sessão do WhatsApp.
+
+Quando tiver uma VPS, é só subir o mesmo `docker-compose.yml` nela.
 
 ## Variáveis de ambiente
 

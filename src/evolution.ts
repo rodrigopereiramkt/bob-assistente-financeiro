@@ -81,7 +81,8 @@ export class EvolutionClient {
   private async call(path: string, body: unknown): Promise<any> {
     const res = await fetch(`${this.cfg.url}${path}/${encodeURIComponent(this.cfg.instance)}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: this.cfg.apiKey },
+      // ngrok-skip-browser-warning: evita a página de aviso do ngrok free quando a Evolution está atrás de um túnel.
+      headers: { 'Content-Type': 'application/json', apikey: this.cfg.apiKey, 'ngrok-skip-browser-warning': 'true' },
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`Evolution ${path} ${res.status}: ${(await res.text()).slice(0, 300)}`);
