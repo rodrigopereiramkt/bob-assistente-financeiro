@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { handleMessage } from '../src/bob.js';
-import { parseWebhook } from '../src/evolution.js';
+import { isAllowed, parseWebhook } from '../src/evolution.js';
 import { QuotaError, toIntent } from '../src/gemini.js';
 import { MemoryStore } from '../src/store-memory.js';
 import type { AI, Intent } from '../src/types.js';
@@ -132,5 +132,15 @@ describe('parseWebhook (Evolution v2)', () => {
     expect(parseWebhook({ ...base, data: { key: { remoteJid: '1@g.us', id: '1' }, message: { conversation: 'x' } } })).toBeNull();
     expect(parseWebhook({ ...base, data: { key: { remoteJid: '55@s.whatsapp.net', fromMe: true, id: '1' }, message: { conversation: 'x' } } })).toBeNull();
     expect(parseWebhook({ event: 'connection.update', data: {} })).toBeNull();
+  });
+});
+
+describe('isAllowed', () => {
+  it('aceita número com ou sem o 9º dígito', () => {
+    expect(isAllowed('551188887777@s.whatsapp.net', ['5511988887777'])).toBe(true);
+    expect(isAllowed('5511988887777@s.whatsapp.net', ['551188887777'])).toBe(true);
+    expect(isAllowed('5511988887777@s.whatsapp.net', ['5511988887777'])).toBe(true);
+    expect(isAllowed('5511977776666@s.whatsapp.net', ['5511988887777'])).toBe(false);
+    expect(isAllowed('qualquer@s.whatsapp.net', [])).toBe(true);
   });
 });

@@ -29,6 +29,24 @@ export function phoneOf(jid: string): string {
 }
 
 /**
+ * Variações de um número brasileiro com e sem o 9º dígito do celular.
+ * O WhatsApp costuma identificar celulares antigos sem o 9 (ex.: 551188887777
+ * em vez de 5511988887777), então comparamos as duas formas.
+ */
+export function phoneVariants(phone: string): string[] {
+  const d = phone.replace(/\D/g, '');
+  if (d.startsWith('55') && d.length === 13 && d[4] === '9') return [d, d.slice(0, 4) + d.slice(5)];
+  if (d.startsWith('55') && d.length === 12) return [d, d.slice(0, 4) + '9' + d.slice(4)];
+  return [d];
+}
+
+export function isAllowed(from: string, allowed: string[]): boolean {
+  if (allowed.length === 0) return true;
+  const mine = new Set(phoneVariants(phoneOf(from)));
+  return allowed.some((a) => phoneVariants(a).some((v) => mine.has(v)));
+}
+
+/**
  * Extrai a mensagem do payload do webhook.
  * Retorna null para eventos que o Bob ignora (grupos, status, mensagens enviadas por ele mesmo etc.).
  */

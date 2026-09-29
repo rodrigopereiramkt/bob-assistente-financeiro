@@ -2,7 +2,7 @@ import { waitUntil } from '@vercel/functions';
 import { timingSafeEqual } from 'node:crypto';
 import { handleMessage } from '../src/bob.js';
 import { config } from '../src/config.js';
-import { EvolutionClient, parseWebhook, phoneOf } from '../src/evolution.js';
+import { EvolutionClient, isAllowed, parseWebhook } from '../src/evolution.js';
 import { GeminiAI } from '../src/gemini.js';
 import { SupabaseStore } from '../src/store-supabase.js';
 import type { IncomingMessage } from '../src/types.js';
@@ -21,15 +21,19 @@ export async function GET() {
 
 export async function POST(request: Request) {
   if (!tokenOk(new URL(request.url).searchParams.get('token'))) {
+    console.log('Webhook com token inválido');
     return new Response('unauthorized', { status: 401 });
   }
 
   const body = await request.json().catch(() => null);
   const parsed = parseWebhook(body);
-  if (!parsed) return Response.json({ ignored: true });
+  if (!parsed) {
+    console.log('Webhook ignorado:', body?.event, body?.data?.key?.remoteJid ?? '');
+    return Response.json({ ignored: true });
+  }
 
-  const allowed = config.allowedNumbers;
-  if (allowed.length > 0 && !allowed.includes(phoneOf(parsed.message.from))) {
+  if (!isAllowed(parsed.message.from, config.allowedNumbers)) {
+    console.log('Número fora de ALLOWED_NUMBERS:', parsed.message.from);
     return Response.json({ ignored: 'not-allowed' });
   }
 
