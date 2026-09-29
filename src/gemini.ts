@@ -23,7 +23,7 @@ Regras para "transactions":
 - "type": "despesa" para gastos/pagamentos/compras; "receita" para ganhos/salário/recebimentos/vendas.
 - "amount": número positivo em reais, ponto como separador decimal ("23,90" -> 23.9; "1.200" -> 1200; "2k" -> 2000; "cinquenta" -> 50).
 - "category": despesas usam uma de [${EXPENSE_CATEGORIES.join(', ')}]; receitas usam uma de [${INCOME_CATEGORIES.join(', ')}]. iFood/restaurante/lanche = Alimentação; Uber/gasolina/ônibus = Transporte; Netflix/Spotify = Assinaturas; aluguel/condomínio = Moradia; luz/água/internet/celular = Contas.
-- "description": curta, com a primeira letra maiúscula (ex.: "iFood", "Mercado", "Salário").
+- "description": curta, usando as palavras do próprio usuário (ex.: "gastei 25 no almoço" -> "Almoço"; "45 no ifood" -> "iFood"). Nunca invente loja, marca ou aplicativo que o usuário não citou.
 - "date": YYYY-MM-DD. Use a data de hoje se não for dita. Resolva "ontem", "sexta", "dia 5" em relação a hoje (nunca no futuro, exceto se o usuário disser explicitamente).
 - Se a mensagem for uma foto de nota fiscal/comprovante, registre o total como despesa (ou receita, se for um comprovante recebido).
 - Se não houver valor claro, use "conversa" e pergunte o valor em "reply".
