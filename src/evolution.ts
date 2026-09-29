@@ -144,7 +144,10 @@ export class EvolutionClient {
   }
 
   async getMediaBase64(raw: RawMessage): Promise<{ base64: string; mimeType: string | null }> {
-    const res = await this.call('/chat/getBase64FromMediaMessage', { message: { key: { id: raw.key?.id } }, convertToMp4: false });
+    // Manda a mensagem inteira (key + message): assim a Evolution baixa a mídia direto do WhatsApp,
+    // sem procurar no banco (que fica vazio com DATABASE_SAVE_DATA_NEW_MESSAGE=false e dá "Message not found").
+    const { base64: _inline, ...message } = raw.message ?? {};
+    const res = await this.call('/chat/getBase64FromMediaMessage', { message: { key: raw.key, message }, convertToMp4: false });
     if (!res?.base64) throw new Error('Evolution não devolveu a mídia');
     return { base64: res.base64, mimeType: res.mimetype ?? null };
   }
