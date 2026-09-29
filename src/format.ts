@@ -1,6 +1,6 @@
 import { categoryEmoji } from './categories.js';
 import { shortDate } from './dates.js';
-import type { ReportRequest, Transaction } from './types.js';
+import type { Recurring, ReportRequest, Transaction, TransactionPatch } from './types.js';
 
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 export const money = (n: number) => brl.format(n).replace(/ /g, ' ');
@@ -14,12 +14,31 @@ export function bar(pct: number, width = 8): string {
   return '▓'.repeat(filled) + '░'.repeat(width - filled);
 }
 
+const sign = (t: { type: string }) => (t.type === 'receita' ? '🟢 +' : '🔴 -');
+
+function txLine(t: Transaction): string {
+  const parcela = t.installmentTotal ? ` (${t.installmentNumber}/${t.installmentTotal})` : '';
+  return `${sign(t)}${money(t.amount)} · ${categoryEmoji(t.category)} ${t.category} · ${t.description}${parcela} (${shortDate(t.occurredOn)})`;
+}
+
 export function formatRegistered(txs: Transaction[], comment: string): string {
-  const lines = txs.map((t) => {
-    const sign = t.type === 'receita' ? '🟢 +' : '🔴 -';
-    return `${sign}${money(t.amount)} · ${categoryEmoji(t.category)} ${t.category} · ${t.description} (${shortDate(t.occurredOn)})`;
-  });
-  const head = txs.length === 1 ? '✅ *Anotado!*' : `✅ *Anotei ${txs.length} lançamentos!*`;
+  const single = txs.filter((t) => !t.seriesId);
+  const series = new Map<string, Transaction[]>();
+  for (const t of txs) if (t.seriesId) series.set(t.seriesId, [...(series.get(t.seriesId) ?? []), t]);
+
+  const lines = single.map(txLine);
+  for (const parts of series.values()) {
+    parts.sort((a, b) => a.occurredOn.localeCompare(b.occurredOn));
+    const [first, last] = [parts[0], parts[parts.length - 1]];
+    const total = parts.reduce((s, t) => s + t.amount, 0);
+    const each = parts.length > 1 ? parts[1].amount : first.amount;
+    lines.push(
+      `${sign(first)}${money(total)} · ${categoryEmoji(first.category)} ${first.category} · ${first.description}`,
+      `   💳 em ${parts.length}x de ${money(each)}, de ${shortDate(first.occurredOn)} a ${shortDate(last.occurredOn)}/${last.occurredOn.slice(2, 4)}`,
+    );
+  }
+  const count = single.length + series.size;
+  const head = count === 1 ? '✅ *Anotado!*' : `✅ *Anotei ${count} lançamentos!*`;
   return [head, ...lines, comment ? `\n${comment}` : '', '\n_Errou? É só dizer "desfaz"._'].filter(Boolean).join('\n');
 }
 
@@ -75,8 +94,18 @@ export function formatReport(req: ReportRequest, txs: Transaction[], intro: stri
 
 export function formatList(txs: Transaction[], intro: string): string {
   if (txs.length === 0) return 'Ainda não tem nada anotado. Me conta seu primeiro gasto, tipo "gastei 20 no café" ☕';
-  const lines = txs.map((t) => `${t.type === 'receita' ? '🟢 +' : '🔴 -'}${money(t.amount)} · ${shortDate(t.occurredOn)} · ${categoryEmoji(t.category)} ${t.description}`);
-  return [intro || `🧾 *Seus últimos ${txs.length} lançamentos:*`, '', ...lines].join('\n');
+  const lines = txs.map((t, i) => {
+    const parcela = t.installmentTotal ? ` (${t.installmentNumber}/${t.installmentTotal})` : '';
+    const auto = t.recurringId ? ' 🔁' : '';
+    return `*#${i + 1}* ${sign(t)}${money(t.amount)} · ${shortDate(t.occurredOn)} · ${categoryEmoji(t.category)} ${t.description}${parcela}${auto}`;
+  });
+  return [
+    intro || `🧾 *Seus últimos ${txs.length} lançamentos:*`,
+    '',
+    ...lines,
+    '',
+    '_Pra corrigir: "muda o #2 pra 45" · pra apagar: "apaga o #3"_',
+  ].join('\n');
 }
 
 export function formatUndo(removed: Transaction[]): string {
@@ -85,20 +114,91 @@ export function formatUndo(removed: Transaction[]): string {
   return ['🗑️ *Desfeito!* Apaguei:', ...lines, '\nFinge que nunca aconteceu 🤫'].join('\n');
 }
 
+export function formatDeleted(removed: Transaction[], comment: string): string {
+  if (removed.length === 0) return 'Não achei esse lançamento, acho que já tinha sumido 🤷';
+  const t = removed[0];
+  const head =
+    removed.length > 1
+      ? `🗑️ *Apaguei a compra parcelada inteira* (${removed.length} parcelas):`
+      : '🗑️ *Apagado!*';
+  return [head, `~${money(removed.length > 1 ? removed.reduce((s, x) => s + x.amount, 0) : t.amount)} · ${t.description} (${shortDate(t.occurredOn)})~`, comment ? `\n${comment}` : '']
+    .filter(Boolean)
+    .join('\n');
+}
+
+export function formatEdited(before: Transaction, after: Transaction, comment: string): string {
+  const changes: string[] = [];
+  const fields: [keyof TransactionPatch, string, (v: any) => string][] = [
+    ['amount', 'Valor', money],
+    ['description', 'Descrição', String],
+    ['category', 'Categoria', (c) => `${categoryEmoji(c)} ${c}`],
+    ['occurredOn', 'Data', shortDate],
+    ['type', 'Tipo', String],
+  ];
+  for (const [key, label, fmt] of fields) {
+    if (before[key] !== after[key]) changes.push(`${label}: ~${fmt(before[key])}~ → *${fmt(after[key])}*`);
+  }
+  const parcela = after.installmentTotal ? `\n_Mudei só a parcela ${after.installmentNumber}/${after.installmentTotal}._` : '';
+  return ['✏️ *Corrigido!*', txLine(after), ...(changes.length ? ['', ...changes] : []), parcela, comment ? `\n${comment}` : '']
+    .filter(Boolean)
+    .join('\n');
+}
+
+export function formatAutoLaunched(txs: Transaction[]): string {
+  return ['🔁 *Lancei os recorrentes do dia:*', ...txs.map(txLine)].join('\n');
+}
+
+export function formatRecurringCreated(r: Recurring, next: string, launchedToday: boolean, comment: string): string {
+  return [
+    '🔁 *Recorrente criado!*',
+    `${sign(r)}${money(r.amount)} · ${categoryEmoji(r.category)} ${r.category} · ${r.description}`,
+    `Todo dia ${r.dayOfMonth} eu lanço sozinho e aviso aqui.${launchedToday ? ' Já lancei o de hoje.' : ''} Próximo: ${shortDate(next)}.`,
+    comment ? `\n${comment}` : '',
+    '\n_Pra parar: "cancela o recorrente de ' + r.description.toLowerCase() + '"_',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+export function formatRecurringList(list: Recurring[], intro: string): string {
+  if (list.length === 0) return 'Nenhum recorrente por aqui. Cria um assim: "aluguel 1500 todo dia 5" 🔁';
+  const lines = list.map(
+    (r, i) => `*R${i + 1}* ${sign(r)}${money(r.amount)} · ${categoryEmoji(r.category)} ${r.description} · todo dia ${r.dayOfMonth} · próximo ${shortDate(r.nextDue)}`,
+  );
+  const expense = list.filter((r) => r.type === 'despesa').reduce((s, r) => s + r.amount, 0);
+  const income = list.filter((r) => r.type === 'receita').reduce((s, r) => s + r.amount, 0);
+  const totals = [income ? `💰 ${money(income)} entrando` : '', expense ? `💸 ${money(expense)} saindo` : ''].filter(Boolean).join(' · ');
+  return [intro || '🔁 *Seus recorrentes:*', '', ...lines, '', `Por mês: ${totals}`, '_Pra parar um: "cancela o R2"_'].join('\n');
+}
+
+export function formatRecurringCancelled(r: Recurring, comment: string): string {
+  return [`🛑 *Recorrente cancelado:* ${r.description} (${money(r.amount)}, todo dia ${r.dayOfMonth})`, 'Os lançamentos que já fiz continuam lá.', comment ? `\n${comment}` : '']
+    .filter(Boolean)
+    .join('\n');
+}
+
 export const HELP_TEXT = `Oi! Eu sou o *Bob*, seu assistente financeiro 🤖💸
 
 *Registrar* (texto, áudio ou foto da nota):
 • "gastei 45 no ifood"
 • "uber 23,90 e mercado 180 ontem"
 • "recebi 3500 de salário"
+• "TV 2400 em 10x" (parcelado)
+
+*Recorrentes* (lanço sozinho todo mês):
+• "aluguel 1500 todo dia 5"
+• "meus recorrentes"
+• "cancela o recorrente da Netflix"
 
 *Relatórios:*
 • "quanto gastei esse mês?"
 • "resumo da semana"
 • "quanto foi de mercado em agosto?"
 
-*Outros:*
-• "mostra meus últimos gastos"
+*Corrigir:*
+• "mostra meus últimos gastos" (lista numerada)
+• "muda o #3 pra 45" ou "o almoço de ontem foi 30"
+• "apaga o #2"
 • "desfaz" (apaga o último lançamento)
 
 Pode falar do seu jeito que eu entendo 😉`;

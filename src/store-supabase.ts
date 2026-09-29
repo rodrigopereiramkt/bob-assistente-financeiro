@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { NewTransaction, Store, Transaction, TxType, User } from './types.js';
+import type { NewRecurring, NewTransaction, Recurring, Store, Transaction, TransactionPatch, TxType, User } from './types.js';
 
 function toTx(row: any): Transaction {
   return {
@@ -11,6 +11,40 @@ function toTx(row: any): Transaction {
     occurredOn: row.occurred_on,
     messageId: row.message_id,
     createdAt: row.created_at,
+    seriesId: row.series_id ?? null,
+    installmentNumber: row.installment_number ?? null,
+    installmentTotal: row.installment_total ?? null,
+    recurringId: row.recurring_id ?? null,
+  };
+}
+
+function toRecurring(row: any): Recurring {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    type: row.type,
+    amount: Number(row.amount),
+    category: row.category,
+    description: row.description ?? '',
+    dayOfMonth: row.day_of_month,
+    nextDue: row.next_due,
+    active: row.active,
+  };
+}
+
+function txRow(userId: string, t: NewTransaction, messageId: string | null) {
+  return {
+    user_id: userId,
+    type: t.type,
+    amount: t.amount,
+    category: t.category,
+    description: t.description,
+    occurred_on: t.occurredOn,
+    message_id: messageId,
+    series_id: t.seriesId ?? null,
+    installment_number: t.installmentNumber ?? null,
+    installment_total: t.installmentTotal ?? null,
+    recurring_id: t.recurringId ?? null,
   };
 }
 
@@ -41,19 +75,11 @@ export class SupabaseStore implements Store {
     throw error;
   }
 
-  async insertTransactions(userId: string, txs: NewTransaction[], messageId: string): Promise<Transaction[]> {
-    const rows = txs.map((t) => ({
-      user_id: userId,
-      type: t.type,
-      amount: t.amount,
-      category: t.category,
-      description: t.description,
-      occurred_on: t.occurredOn,
-      message_id: messageId,
-    }));
-    const { data, error } = await this.db.from('transactions').insert(rows).select('*');
+  async insertTransactions(userId: string, txs: NewTransaction[], messageId: string | null): Promise<Transaction[]> {
+    if (txs.length === 0) return [];
+    const { data, error } = await this.db.from('transactions').insert(txs.map((t) => txRow(userId, t, messageId))).select('*');
     if (error) throw error;
-    return (data ?? []).map(toTx);
+    return (data ?? []).map(toTx).sort((a, b) => a.occurredOn.localeCompare(b.occurredOn));
   }
 
   async listTransactions(userId: string, f: { startDate: string; endDate: string; type?: TxType; category?: string | null }): Promise<Transaction[]> {
@@ -72,24 +98,122 @@ export class SupabaseStore implements Store {
     return (data ?? []).map(toTx);
   }
 
-  async lastTransactions(userId: string, limit: number): Promise<Transaction[]> {
+  async recentTransactions(userId: string, today: string, limit: number): Promise<Transaction[]> {
     const { data, error } = await this.db
       .from('transactions')
       .select('*')
       .eq('user_id', userId)
+      .lte('occurred_on', today)
+      .order('occurred_on', { ascending: false })
       .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
       .limit(limit);
     if (error) throw error;
     return (data ?? []).map(toTx);
   }
 
   async deleteLastBatch(userId: string): Promise<Transaction[]> {
-    const [last] = await this.lastTransactions(userId, 1);
+    const { data: last, error: lastErr } = await this.db
+      .from('transactions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (lastErr) throw lastErr;
     if (!last) return [];
     let q = this.db.from('transactions').delete().eq('user_id', userId);
-    q = last.messageId ? q.eq('message_id', last.messageId) : q.eq('id', last.id);
+    q = last.message_id ? q.eq('message_id', last.message_id) : last.series_id ? q.eq('series_id', last.series_id) : q.eq('id', last.id);
     const { data, error } = await q.select('*');
     if (error) throw error;
     return (data ?? []).map(toTx);
+  }
+
+  async updateTransaction(userId: string, id: string, p: TransactionPatch): Promise<Transaction | null> {
+    const row: Record<string, unknown> = {};
+    if (p.type) row.type = p.type;
+    if (p.amount != null) row.amount = p.amount;
+    if (p.category) row.category = p.category;
+    if (p.description) row.description = p.description;
+    if (p.occurredOn) row.occurred_on = p.occurredOn;
+    const { data, error } = await this.db.from('transactions').update(row).eq('user_id', userId).eq('id', id).select('*').maybeSingle();
+    if (error) throw error;
+    return data ? toTx(data) : null;
+  }
+
+  async deleteTransaction(userId: string, id: string): Promise<Transaction[]> {
+    const { data: tx, error: selErr } = await this.db.from('transactions').select('*').eq('user_id', userId).eq('id', id).maybeSingle();
+    if (selErr) throw selErr;
+    if (!tx) return [];
+    let q = this.db.from('transactions').delete().eq('user_id', userId);
+    q = tx.series_id ? q.eq('series_id', tx.series_id) : q.eq('id', id);
+    const { data, error } = await q.select('*');
+    if (error) throw error;
+    return (data ?? []).map(toTx).sort((a, b) => a.occurredOn.localeCompare(b.occurredOn));
+  }
+
+  async createRecurring(userId: string, r: NewRecurring): Promise<Recurring> {
+    const { data, error } = await this.db
+      .from('recurring')
+      .insert({
+        user_id: userId,
+        type: r.type,
+        amount: r.amount,
+        category: r.category,
+        description: r.description,
+        day_of_month: r.dayOfMonth,
+        next_due: r.nextDue,
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return toRecurring(data);
+  }
+
+  async listRecurring(userId: string): Promise<Recurring[]> {
+    const { data, error } = await this.db
+      .from('recurring')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('active', true)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data ?? []).map(toRecurring);
+  }
+
+  async cancelRecurring(userId: string, id: string): Promise<void> {
+    const { error } = await this.db.from('recurring').update({ active: false }).eq('user_id', userId).eq('id', id);
+    if (error) throw error;
+  }
+
+  async setRecurringNextDue(id: string, nextDue: string): Promise<void> {
+    const { error } = await this.db.from('recurring').update({ next_due: nextDue }).eq('id', id);
+    if (error) throw error;
+  }
+
+  async dueRecurring(today: string): Promise<(Recurring & { user: User })[]> {
+    const { data, error } = await this.db
+      .from('recurring')
+      .select('*, users(id, phone, name)')
+      .eq('active', true)
+      .lte('next_due', today)
+      .limit(1000);
+    if (error) throw error;
+    return (data ?? []).map((row: any) => ({ ...toRecurring(row), user: row.users as User }));
+  }
+
+  async insertRecurringOccurrence(r: Recurring, date: string): Promise<Transaction | null> {
+    const t: NewTransaction = {
+      type: r.type,
+      amount: r.amount,
+      category: r.category,
+      description: r.description,
+      occurredOn: date,
+      recurringId: r.id,
+    };
+    const { data, error } = await this.db.from('transactions').insert(txRow(r.userId, t, null)).select('*').single();
+    if (error?.code === '23505') return null; // já lançado nessa data
+    if (error) throw error;
+    return toTx(data);
   }
 }

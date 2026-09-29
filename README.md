@@ -21,8 +21,13 @@ WhatsApp ──► Evolution API ──webhook──► Vercel /api/webhook ─�
 | "recebi 3500 de salário" | registra receita |
 | 🎤 áudio ou 📷 foto da nota | mesma coisa |
 | "quanto gastei esse mês?", "resumo da semana", "quanto foi de mercado em agosto?" | relatório com receitas, despesas, saldo e ranking por categoria |
-| "mostra meus últimos gastos" | lista os últimos lançamentos |
-| "desfaz" | apaga o último lançamento (ou o último lote) |
+| "TV 2400 em 10x" | parcelado: 10 lançamentos de R$ 240, um por mês, a partir deste mês |
+| "aluguel 1500 todo dia 5", "netflix 55,90 todo mês" | recorrente: o Bob lança sozinho no dia e avisa na conversa |
+| "meus recorrentes", "cancela o recorrente da Netflix" | lista ou para um recorrente |
+| "mostra meus últimos gastos" | lista numerada (#1, #2…) dos últimos lançamentos |
+| "muda o #3 pra 45", "o almoço de ontem foi 30", "o uber era lazer" | corrige um lançamento específico (se ficar ambíguo, o Bob pergunta qual) |
+| "apaga o #2" | apaga um lançamento específico (numa parcela, apaga a compra inteira) |
+| "desfaz" | apaga o último lançamento (ou o último lote, incluindo todas as parcelas) |
 | "ajuda" | mostra o menu |
 | qualquer outra coisa | conversa com bom humor e dicas de finanças |
 
@@ -47,7 +52,7 @@ test/bob.test.ts        # testes
 
 ### 1. Supabase
 1. Crie um projeto em https://supabase.com (plano Free).
-2. Abra **SQL Editor**, cole o conteúdo de `supabase/schema.sql` e rode.
+2. Abra **SQL Editor**, cole o conteúdo de `supabase/schema.sql` e rode. Depois faça o mesmo com `supabase/migrations/002_parcelados_recorrentes.sql`.
 3. Em **Project Settings → API**, copie a **Project URL** e a **service_role key** (é secreta, só vai na Vercel).
 
 ### 2. Gemini
@@ -135,6 +140,7 @@ Com `ALLOWED_GROUPS` preenchido o Bob responde **só** nesses grupos, ignora o p
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | banco |
 | `ALLOWED_NUMBERS` | opcional: só esses números podem usar no privado (protege sua cota gratuita) |
 | `ALLOWED_GROUPS`, `GROUP_LEDGER` | opcional: modo grupo (veja acima) |
+| `CRON_SECRET` | segredo da rota `/api/cron`, que lança os recorrentes todo dia às 8h (Brasília). A Vercel envia sozinha. Sem ela, os recorrentes só são lançados quando alguém manda mensagem |
 | `TIMEZONE` | padrão `America/Sao_Paulo` |
 
 ## Limites do free tier (bom saber)
@@ -149,4 +155,4 @@ npm run typecheck
 ```
 
 ## Próximos passos sugeridos
-Orçamento por categoria com alerta ("você já usou 80% do limite de delivery"), resumo semanal automático (Vercel Cron), gastos recorrentes/parcelados, exportar CSV, editar um lançamento específico.
+Orçamento por categoria com alerta ("você já usou 80% do limite de delivery"), resumo semanal automático (Vercel Cron), exportar CSV, lembrete de conta a pagar em vez de lançamento automático.

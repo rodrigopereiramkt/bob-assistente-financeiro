@@ -21,7 +21,7 @@ const store =
   process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
     ? new SupabaseStore(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
     : new MemoryStore();
-const ai = new GeminiAI(apiKey, process.env.GEMINI_MODEL || 'gemini-3.8-flash');
+const ai = new GeminiAI(apiKey, process.env.GEMINI_MODEL || 'gemini-3.8-flash', ['gemini-3.1-flash-lite']);
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 
 console.log(`Bob no terminal (${store instanceof MemoryStore ? 'memória' : 'Supabase'}). Digite "sair" para encerrar.\n`);

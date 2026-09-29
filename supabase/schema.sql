@@ -37,3 +37,5 @@ create table if not exists public.processed_messages (
 alter table public.users              enable row level security;
 alter table public.transactions       enable row level security;
 alter table public.processed_messages enable row level security;
+
+-- Parcelados e recorrentes: rode também supabase/migrations/002_parcelados_recorrentes.sql
