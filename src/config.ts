@@ -19,6 +19,7 @@ export const config = {
     return {
       apiKey: required('GEMINI_API_KEY'),
       model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+      fallbackModels: (process.env.GEMINI_FALLBACK_MODELS || '').split(',').map((m) => m.trim()).filter(Boolean),
     };
   },
   get supabase() {

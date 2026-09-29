@@ -1,6 +1,6 @@
 import { todayIn } from './dates.js';
 import { formatList, formatRegistered, formatReport, formatUndo, HELP_TEXT } from './format.js';
-import { QuotaError } from './gemini.js';
+import { BusyError, QuotaError } from './gemini.js';
 import type { AI, IncomingMessage, Store } from './types.js';
 
 export interface BobDeps {
@@ -36,6 +36,9 @@ export async function handleMessage(msg: IncomingMessage, deps: BobDeps): Promis
   } catch (err) {
     if (err instanceof QuotaError) {
       return 'Ufa, tô sem fôlego de tanta conta 😮‍💨 Atingi meu limite de agora. Me manda de novo daqui a pouquinho?';
+    }
+    if (err instanceof BusyError) {
+      return 'Meu cérebro de IA tá congestionado agora 🚦 Não anotei nada ainda. Me manda de novo daqui a um minutinho?';
     }
     throw err;
   }

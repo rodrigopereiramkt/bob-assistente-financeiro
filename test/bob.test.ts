@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { handleMessage } from '../src/bob.js';
 import { isAllowed, parseWebhook } from '../src/evolution.js';
-import { QuotaError, toIntent } from '../src/gemini.js';
+import { BusyError, GeminiAI, QuotaError, toIntent } from '../src/gemini.js';
 import { MemoryStore } from '../src/store-memory.js';
 import type { AI, Intent } from '../src/types.js';
 
@@ -143,4 +143,35 @@ describe('isAllowed', () => {
     expect(isAllowed('5511977776666@s.whatsapp.net', ['5511988887777'])).toBe(false);
     expect(isAllowed('qualquer@s.whatsapp.net', [])).toBe(true);
   });
+});
+
+describe('GeminiAI (novas tentativas)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const ok = { candidates: [{ content: { parts: [{ text: JSON.stringify({ intent: 'conversa', reply: 'Oi!' }) }] } }] };
+  const ctx = { today: '2026-09-28', weekday: 'segunda-feira' };
+  const noSleep = async () => {};
+
+  it('tenta de novo quando o modelo está sobrecarregado', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('busy', { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(ok), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const r = await new GeminiAI('k', 'm1', [], noSleep).interpret({ text: 'oi', media: null }, ctx);
+    expect(r).toEqual({ kind: 'conversa', reply: 'Oi!' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('cai para o modelo reserva e depois desiste com BusyError', async () => {
+    const fetchMock = vi.fn(async () => new Response('busy', { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(new GeminiAI('k', 'm1', ['m2'], noSleep).interpret({ text: 'oi', media: null }, ctx)).rejects.toBeInstanceOf(BusyError);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(String((fetchMock.mock.calls as any[])[5][0])).toContain('/models/m2:');
+  });
+});
+
+it('avisa com bom humor quando o Gemini está sobrecarregado', async () => {
+  const ai: AI = { interpret: async () => { throw new BusyError('503'); } };
+  const r = await handleMessage(msg('b', 'gastei 10'), { store: new MemoryStore(), ai, timezone: tz, now: NOW });
+  expect(r).toContain('congestionado');
 });

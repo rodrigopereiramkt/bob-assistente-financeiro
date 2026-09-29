@@ -3,6 +3,10 @@ import { isValidDate, startOfMonth } from './dates.js';
 import type { AI, Intent, NewTransaction } from './types.js';
 
 export class QuotaError extends Error {}
+/** O modelo está sobrecarregado (503/500) mesmo depois das novas tentativas. */
+export class BusyError extends Error {}
+
+const RETRY_DELAYS_MS = [1500, 4000];
 
 const SYSTEM_PROMPT = `Você é o Bob, um assistente financeiro pessoal no WhatsApp, brasileiro, prático e bem-humorado.
 Sua tarefa é interpretar a mensagem do usuário e devolver SOMENTE o JSON no schema pedido.
@@ -120,21 +124,44 @@ export function toIntent(raw: any, today: string): Intent {
 }
 
 export class GeminiAI implements AI {
-  constructor(private apiKey: string, private model: string) {}
+  constructor(
+    private apiKey: string,
+    private model: string,
+    private fallbackModels: string[] = [],
+    private sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  ) {}
 
   async interpret(msg: Parameters<AI['interpret']>[0], ctx: Parameters<AI['interpret']>[1]): Promise<Intent> {
     const parts: any[] = [{ text: `Hoje é ${ctx.weekday}, ${ctx.today}.\nMensagem do usuário: ${msg.text ?? '(sem texto, veja a mídia anexada)'}` }];
     if (msg.media) parts.push({ inlineData: { mimeType: msg.media.mimeType, data: msg.media.base64 } });
 
+    // Sobrecarga (503/500) é comum no free tier: tenta de novo e, se configurado, cai para outro modelo.
+    for (const model of [this.model, ...this.fallbackModels]) {
+      for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+        if (attempt > 0) await this.sleep(RETRY_DELAYS_MS[attempt - 1]);
+        const res = await this.call(model, parts);
+        if (res.status === 503 || res.status === 500) {
+          console.warn(`Gemini ${model} sobrecarregado (${res.status}), tentativa ${attempt + 1}`);
+          continue;
+        }
+        if (res.status === 429) throw new QuotaError('Cota do Gemini esgotada');
+        if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 500)}`);
+        return this.parse(await res.json(), ctx.today);
+      }
+    }
+    throw new BusyError('Gemini sobrecarregado');
+  }
+
+  private call(model: string, parts: any[]): Promise<Response> {
     const generationConfig: any = {
       temperature: 0.4,
       responseMimeType: 'application/json',
       responseSchema: RESPONSE_SCHEMA,
     };
     // Nos modelos 2.5, desligar o "thinking" deixa a resposta mais rápida e poupa cota.
-    if (this.model.startsWith('gemini-2.5')) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    if (model.startsWith('gemini-2.5')) generationConfig.thinkingConfig = { thinkingBudget: 0 };
 
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`, {
+    return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
       body: JSON.stringify({
@@ -143,11 +170,9 @@ export class GeminiAI implements AI {
         generationConfig,
       }),
     });
+  }
 
-    if (res.status === 429) throw new QuotaError('Cota do Gemini esgotada');
-    if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 500)}`);
-
-    const data: any = await res.json();
+  private parse(data: any, today: string): Intent {
     const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? '').join('') ?? '';
     let raw: unknown;
     try {
@@ -155,6 +180,6 @@ export class GeminiAI implements AI {
     } catch {
       throw new Error(`Gemini devolveu JSON inválido: ${text.slice(0, 200)}`);
     }
-    return toIntent(raw, ctx.today);
+    return toIntent(raw, today);
   }
 }

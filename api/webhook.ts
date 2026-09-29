@@ -66,7 +66,7 @@ async function processMessage(parsed: NonNullable<ReturnType<typeof parseWebhook
       { ...parsed.message, media },
       {
         store: new SupabaseStore(config.supabase.url, config.supabase.serviceKey),
-        ai: new GeminiAI(config.gemini.apiKey, config.gemini.model),
+        ai: new GeminiAI(config.gemini.apiKey, config.gemini.model, config.gemini.fallbackModels),
         timezone: config.timezone,
       },
     );
